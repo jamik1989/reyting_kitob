@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Рейтинг групп</title>
+    <style>
+        table {
+            width: 50%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 18px;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #ff7f16;
+        }
+    </style>
+</head>
+<body>
+    <h2>YUKSALISH LIDERLAR AKADEMIYASINING KITOBXONLIK REYTINGI</h2>
+    <table id="ratingTable">
+        <tr><th>Guruh nomi</th><th>Umumiy o'qilgan betlar</th></tr>
+    </table>
+    
+    <script>
+        async function loadData() {
+            let url = "https://script.google.com/macros/s/AKfycbx78LOCNg_kgTvmXxDiveB9Rpo09W-tD0obsSMoYYv2pCQ6naEp5ZcVR15HjuuqvPPI/exec"; // Вставьте ваш URL
+            let response = await fetch(url);
+            let data = await response.json();
+            let table = document.getElementById("ratingTable");
+
+            table.innerHTML = "<tr><th>Guruh nomi</th><th>Umumiy o'qilgan betlar</th></tr>";
+            for (let i = 0; i < data.length; i++) {
+                let row = `<tr><td>${data[i][0]}</td><td>${data[i][8]}</td></tr>`;
+                table.innerHTML += row;
+            }
+        }
+
+        setInterval(loadData, 3000); // Обновление каждые 5 секунд
+        loadData();
+    </script>
+</body>
+</html>
