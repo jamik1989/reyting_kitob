@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ConfirmBotToken,
     [Parameter(Mandatory=$true)][string]$MoySkladToken,
     [Parameter(Mandatory=$true)][string]$GcpServiceAccountJson,
-    [string]$ProjectPath = "C:\Users\Jamshed_Artikov\zakbotbirka\app\zakariyoakabotlari",
+    [string]$ProjectPath = (Get-Location).Path,
     [string]$ConfirmChatId = "-1002880207467",
     [string]$RepeatChatId = "-1002880207467",
     [string]$MoySkladBaseUrl = "https://api.moysklad.ru/api/remap/1.2",
@@ -12,10 +12,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+if (-not (Test-Path -LiteralPath $ProjectPath)) {
+    throw "ProjectPath not found: $ProjectPath"
+}
+
 Set-Location $ProjectPath
 
 if (Test-Path ".\.venv\Scripts\Activate.ps1") {
     . .\.venv\Scripts\Activate.ps1
+} else {
+    Write-Warning "Virtual environment activation script not found (.venv\\Scripts\\Activate.ps1). Continuing with current Python."
+}
+
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    throw "python command not found in PATH"
 }
 
 $env:APP_MODE = "confirm_bot"
@@ -26,15 +36,19 @@ $env:MOYSKLAD_TOKEN = $MoySkladToken
 $env:MOYSKLAD_BASE_URL = $MoySkladBaseUrl
 $env:VISION_ENABLED = $VisionEnabled
 
-# Normalize JSON to one-line to avoid quoting issues in env var.
+# Normalize JSON to one line and preserve nested values.
 $gcpObj = $GcpServiceAccountJson | ConvertFrom-Json
-$env:GCP_SA_JSON = $gcpObj | ConvertTo-Json -Compress
+$env:GCP_SA_JSON = $gcpObj | ConvertTo-Json -Depth 20 -Compress
 
 Remove-Item Env:ORDER_BOT_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:BOT_TOKEN -ErrorAction SilentlyContinue
 
 Write-Host "[confirm_bot] token check..."
-Invoke-RestMethod "https://api.telegram.org/bot$env:CONFIRM_BOT_TOKEN/getMe" | Out-Null
+$tokenCheck = Invoke-RestMethod "https://api.telegram.org/bot$($env:CONFIRM_BOT_TOKEN)/getMe"
+if (-not $tokenCheck.ok) {
+    throw "Telegram token check failed for CONFIRM_BOT_TOKEN"
+}
+Write-Host "[confirm_bot] token valid: @$($tokenCheck.result.username)"
 
 Write-Host "[confirm_bot] starting python -m app.main"
 python -m app.main

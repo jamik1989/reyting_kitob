@@ -7,11 +7,14 @@ Qo'lda uzun env yozib adashmaslik uchun 2 ta script qo'shildi:
 - `run_order_local.ps1` → `order_bot` (`/kiritish`)
 - `run_confirm_local.ps1` → `confirm_bot` (`/tasdiq`, `/takror`)
 
+> Eslatma: bu scriptlar faqat environment o'rnatadi va `python -m app.main` ni ishga tushiradi. Ular Python source fayllarini tahrir qilmaydi.
+
 ### 1) Order bot
 ```powershell
 $ORDER_TOKEN = "<ORDER_BOT_TOKEN>"
 $MS_TOKEN = "<MOYSKLAD_TOKEN>"
 
+# Script ishlayotgan papka default bo'ladi.
 .\run_order_local.ps1 -OrderBotToken $ORDER_TOKEN -MoySkladToken $MS_TOKEN
 ```
 
@@ -30,8 +33,7 @@ $GCP_JSON = Get-Content .\service-account.json -Raw
 ```
 
 ### Ixtiyoriy parametrlar
-Har ikki scriptda ham default `ProjectPath`:
-`C:\Users\Jamshed_Artikov\zakbotbirka\app\zakariyoakabotlari`
+Har ikki scriptda ham default `ProjectPath`: joriy PowerShell papkasi (`Get-Location`).
 
 Kerak bo'lsa override qiling:
 ```powershell
@@ -83,5 +85,5 @@ Qo'ymaslik kerak (aralashmasin):
 4. Agar local test qilmoqchi bo'lsangiz, Railway'dagi shu token ishlatayotgan serviceni vaqtincha to'xtating.
 
 ## Xavfsizlik
-- Token va private key’larni chatga yubormang.
+- Token va private key'larni chatga yubormang.
 - Oshkor bo'lgan tokenlarni BotFather orqali `revoke` qiling.
