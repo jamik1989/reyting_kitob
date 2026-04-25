@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 import re
+import logging
 from difflib import SequenceMatcher
 import tempfile
 from pathlib import Path
@@ -28,6 +29,7 @@ from ..services.moysklad import (
 from ..services import moysklad as _ms_mod
 
 TK_SEARCH, TK_PICK, TK_EXTRA, TK_QTY, TK_REVIEW, TK_EDIT_VALUE = range(6)
+logger = logging.getLogger(__name__)
 
 TG_TZ = ZoneInfo(os.getenv("TG_TZ", "Asia/Tashkent"))
 MS_TZ = ZoneInfo(os.getenv("MOYSKLAD_TZ", "Europe/Moscow"))
@@ -533,7 +535,14 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
                         reply_markup=kb,
                     )
                     return TK_PICK
-        except Exception:
+        except Exception as e_photo:
+            logger.warning(
+                "takror preview send_photo failed: chat_id=%s img=%s exists=%s err=%r",
+                getattr(target_message, "chat_id", None),
+                img[:300] if isinstance(img, str) else type(img).__name__,
+                os.path.exists(img) if isinstance(img, str) else False,
+                e_photo,
+            )
             # fallback: some clients/channels reject photo but accept document
             try:
                 if os.path.exists(img):
@@ -545,8 +554,14 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
                             reply_markup=kb,
                         )
                         return TK_PICK
-            except Exception:
-                pass
+            except Exception as e_doc:
+                logger.warning(
+                    "takror preview send_document failed: chat_id=%s img=%s exists=%s err=%r",
+                    getattr(target_message, "chat_id", None),
+                    img[:300] if isinstance(img, str) else type(img).__name__,
+                    os.path.exists(img) if isinstance(img, str) else False,
+                    e_doc,
+                )
             await context.bot.send_message(chat_id=target_message.chat_id, text="⚠️ Rasmni yuborib bo‘lmadi, matnli preview yuborildi.")
 
     await target_message.reply_text(text, reply_markup=kb)
@@ -754,14 +769,28 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
             elif os.path.exists(img):
                 with open(img, "rb") as f:
                     await context.bot.send_photo(chat_id=q.message.chat_id, photo=f, caption="🖼 Topilgan tovar rasmi")
-        except Exception:
+        except Exception as e_photo:
+            logger.warning(
+                "takror product send_photo failed: chat_id=%s img=%s exists=%s err=%r",
+                getattr(q.message, "chat_id", None),
+                img[:300] if isinstance(img, str) else type(img).__name__,
+                os.path.exists(img) if isinstance(img, str) else False,
+                e_photo,
+            )
             try:
                 if os.path.exists(img):
                     with open(img, "rb") as f:
                         await context.bot.send_document(chat_id=q.message.chat_id, document=f, caption="🖼 Topilgan tovar rasmi")
                 else:
                     await context.bot.send_document(chat_id=q.message.chat_id, document=img, caption="🖼 Topilgan tovar rasmi")
-            except Exception:
+            except Exception as e_doc:
+                logger.warning(
+                    "takror product send_document failed: chat_id=%s img=%s exists=%s err=%r",
+                    getattr(q.message, "chat_id", None),
+                    img[:300] if isinstance(img, str) else type(img).__name__,
+                    os.path.exists(img) if isinstance(img, str) else False,
+                    e_doc,
+                )
                 await context.bot.send_message(chat_id=q.message.chat_id, text="⚠️ Tovar rasmi topildi, lekin yuborishda xatolik bo‘ldi.")
     else:
         await context.bot.send_message(chat_id=q.message.chat_id, text="ℹ️ Bu tovarni rasmi yo‘q.")
