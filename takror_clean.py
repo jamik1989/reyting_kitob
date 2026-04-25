@@ -137,6 +137,7 @@ def _cleanup(context: ContextTypes.DEFAULT_TYPE):
         "tk_phase",
         "tk_cp_meta",
         "tk_cp_name",
+        "tk_cp_candidates",
     ):
         context.user_data.pop(k, None)
 
@@ -373,25 +374,19 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if phase == "cp":
         rows = _rank_counterparties(_search_counterparties(q), q)
         if rows:
-            cp = _best_cp(rows, q) or {}
-            cp_name = (cp.get("name") or q).strip()
-            d["brand"] = cp_name.upper()
-            context.user_data["tk_form"] = d
-            context.user_data["tk_cp_meta"] = _extract_cp_meta(cp)
-            context.user_data["tk_cp_name"] = cp_name
-            context.user_data["tk_phase"] = "product"
-            top_lines = []
-            for idx, item in enumerate(rows[:5], 1):
+            context.user_data["tk_cp_candidates"] = rows[:20]
+            kb_rows = []
+            for i, item in enumerate(rows[:12]):
                 nm = str(item.get("name") or "-").strip()
                 ph = str(item.get("phone") or "").strip()
-                top_lines.append(f"{idx}) {nm}" + (f" ({ph})" if ph else ""))
+                label = f"{nm}" + (f" ({ph})" if ph else "")
+                kb_rows.append([InlineKeyboardButton(f"✅ {label[:58]}", callback_data=f"tkr_cp:{i}")])
 
             await update.message.reply_text(
-                f"✅ Kontragent topildi: {cp_name}\n"
-                + ("🔎 O'xshashlar:\n" + "\n".join(top_lines) + "\n\n" if top_lines else "\n")
-                + "🔁 Takror: tovar nomini yozing."
+                "Natijalar:\n— Agar ✅ OPEN tasdiq chiqsa, o‘shani tanlang.\n— Aks holda kontragentni tanlang.",
+                reply_markup=InlineKeyboardMarkup(kb_rows),
             )
-            return TK_SEARCH
+            return TK_PICK
 
         m = re.match(r"^\s*([^-]+)-([^-]+)-(\+?\d{7,15})\s*$", q)
         if m:
@@ -462,10 +457,41 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
                 with open(img, "rb") as f:
                     await context.bot.send_photo(chat_id=q.message.chat_id, photo=f, caption="🖼 Topilgan tovar rasmi")
         except Exception:
-            pass
+            await context.bot.send_message(chat_id=q.message.chat_id, text="⚠️ Tovar rasmi topildi, lekin yuborishda xatolik bo‘ldi.")
 
     await q.edit_message_text("📝 Q.M (izoh) kiriting. Masalan: kb")
     return TK_EXTRA
+
+
+async def takror_cp_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    data = q.data or ""
+    if not data.startswith("tkr_cp:"):
+        return TK_PICK
+
+    try:
+        idx = int(data.split(":", 1)[1])
+    except Exception:
+        await q.edit_message_text("❌ Kontragent tanlashda xatolik.")
+        return TK_SEARCH
+
+    rows = context.user_data.get("tk_cp_candidates") or []
+    if idx < 0 or idx >= len(rows):
+        await q.edit_message_text("❌ Kontragent topilmadi, qaytadan yozing.")
+        return TK_SEARCH
+
+    cp = rows[idx] or {}
+    cp_name = (cp.get("name") or "-").strip()
+    d = context.user_data.get("tk_form") or {}
+    d["brand"] = cp_name.upper()
+    context.user_data["tk_form"] = d
+    context.user_data["tk_cp_meta"] = _extract_cp_meta(cp)
+    context.user_data["tk_cp_name"] = cp_name
+    context.user_data["tk_phase"] = "product"
+
+    await q.edit_message_text(f"✅ Tanlandi: {cp_name}\n\n🔁 Takror: tovar nomini yozing.")
+    return TK_SEARCH
 
 
 async def takror_extra_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
