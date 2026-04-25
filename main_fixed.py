@@ -119,6 +119,7 @@ from .handlers.takror import (
     takror_search_text,
     takror_pick_product,
     takror_cp_pick,
+    takror_edit_product_pick,
     takror_extra_text,
     takror_qty_text,
     TK_SEARCH,
@@ -256,6 +257,7 @@ def build_app() -> Application:
             TK_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, takror_search_text)],
             TK_PICK: [
                 CallbackQueryHandler(takror_cp_pick, pattern=r"^tkr_cp:"),
+                CallbackQueryHandler(takror_edit_product_pick, pattern=r"^tkr_item:"),
                 CallbackQueryHandler(takror_pick_product, pattern=r"^tkp:"),
                 CallbackQueryHandler(takror_review_action, pattern=r"^tkr:"),
                 CallbackQueryHandler(takror_edit_action, pattern=r"^tkr_edit:"),

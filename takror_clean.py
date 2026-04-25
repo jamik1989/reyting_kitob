@@ -136,6 +136,10 @@ def _extract_size_from_product(prod: Dict[str, Any]) -> str:
     if m:
         return _normalize_size(f"{m.group(1)}x{m.group(2)}")
 
+    m2 = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:sm|cm|см)\D+(\d+(?:[.,]\d+)?)\s*(?:sm|cm|см)", name or "", re.IGNORECASE)
+    if m2:
+        return _normalize_size(f"{m2.group(1)}x{m2.group(2)}")
+
     attrs = prod.get("attributes") or []
     if isinstance(attrs, list):
         for a in attrs:
@@ -160,6 +164,7 @@ def _cleanup(context: ContextTypes.DEFAULT_TYPE):
         "tk_cp_meta",
         "tk_cp_name",
         "tk_cp_candidates",
+        "tk_edit_products_map",
     ):
         context.user_data.pop(k, None)
 
@@ -603,6 +608,23 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return TK_SEARCH
 
+    if phase == "edit_item":
+        rows = search_products(q, limit=10) or []
+        if not rows:
+            await update.message.reply_text("❌ Tovar topilmadi. Boshqa nom yozing.")
+            return TK_SEARCH
+        mp: Dict[str, Dict[str, Any]] = {}
+        kb: List[List[InlineKeyboardButton]] = []
+        for r in rows[:10]:
+            pid = str(r.get("id") or "").strip()
+            if not pid:
+                continue
+            mp[pid] = r
+            kb.append([InlineKeyboardButton(_product_title(r)[:64], callback_data=f"tkr_item:{pid}")])
+        context.user_data["tk_edit_products_map"] = mp
+        await update.message.reply_text("🧾 Yangi tovarni tanlang:", reply_markup=InlineKeyboardMarkup(kb))
+        return TK_PICK
+
     rows = search_products(q, limit=10) or []
     if not rows:
         await update.message.reply_text("❌ Tovar topilmadi. Boshqa nom yozing.")
@@ -706,6 +728,42 @@ async def takror_cp_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await q.edit_message_text(f"✅ Tanlandi: {cp_name}\n\n🔁 Takror: tovar nomini yozing.")
     return TK_SEARCH
+
+
+async def takror_edit_product_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    try:
+        await q.answer()
+    except Exception:
+        pass
+    data = q.data or ""
+    if not data.startswith("tkr_item:"):
+        return TK_PICK
+
+    pid = data.split(":", 1)[1].strip()
+    prod = (context.user_data.get("tk_edit_products_map") or {}).get(pid) or get_product_by_id(pid) or _fetch_product_full_from_ms(pid)
+    if not prod:
+        await q.edit_message_text("❌ Tovar topilmadi.")
+        return TK_PICK
+
+    d = context.user_data.get("tk_form") or {}
+    d["item_type"] = _product_title(prod)
+    d["price_uzs"] = _extract_sale_price_uzs(prod)
+    auto_size = _extract_size_from_product(prod)
+    if auto_size:
+        d["size"] = auto_size
+    img = _get_repeat_product_image(prod, context)
+    if img:
+        d["image_path"] = img
+    context.user_data["tk_form"] = d
+    context.user_data["tk_product"] = prod
+    context.user_data["tk_phase"] = "product"
+
+    await q.edit_message_text(
+        f"✅ Turi yangilandi: {d.get('item_type')}\n\n{_preview_text(context)}",
+        reply_markup=_edit_kb(),
+    )
+    return TK_PICK
 
 
 async def takror_extra_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -851,9 +909,12 @@ async def takror_edit_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["tk_phase"] = "edit_brand"
         await q.edit_message_text("🏷 Yangi brend/mijoz/telefon kiriting (qidiruv ochiladi):")
         return TK_SEARCH
+    if key == "item_type":
+        context.user_data["tk_phase"] = "edit_item"
+        await q.edit_message_text("🧾 Yangi tovar nomini kiriting (qidiruv ochiladi):")
+        return TK_SEARCH
 
     prompts = {
-        "item_type": "🧾 Maxsulot turi:",
         "qm": "📝 Q.M (masalan: kb):",
         "qty": "🔢 Soni (masalan: 3000 sh yoki 3000 d):",
         "price": "💰 Narx (masalan: 450):",
