@@ -4,6 +4,9 @@ from zoneinfo import ZoneInfo
 import os
 import re
 from difflib import SequenceMatcher
+import tempfile
+from pathlib import Path
+import requests
 
 from telegram import (
     Update,
@@ -252,6 +255,10 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
     for k in ("image_path", "photo_path", "imageUrl", "image_url"):
         v = (prod.get(k) or "").strip() if isinstance(prod.get(k), str) else ""
         if v:
+            if "api.moysklad.ru" in v:
+                local = _download_ms_image_to_tmp(v)
+                if local:
+                    return local
             return v
 
     image = prod.get("image") or {}
@@ -259,7 +266,12 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
         for k in ("href", "downloadHref", "url"):
             v = image.get(k)
             if isinstance(v, str) and v.strip():
-                return v.strip()
+                vv = v.strip()
+                if "api.moysklad.ru" in vv:
+                    local = _download_ms_image_to_tmp(vv)
+                    if local:
+                        return local
+                return vv
 
     images = prod.get("images") or {}
     rows = images.get("rows") if isinstance(images, dict) else None
@@ -269,6 +281,10 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
         if isinstance(meta, dict):
             href = (meta.get("downloadHref") or meta.get("href") or "").strip()
             if href:
+                if "api.moysklad.ru" in href:
+                    local = _download_ms_image_to_tmp(href)
+                    if local:
+                        return local
                 return href
 
     for helper in (
@@ -297,6 +313,42 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
                 pass
         except Exception:
             pass
+    return ""
+
+
+def _download_ms_image_to_tmp(url: str) -> str:
+    url = (url or "").strip()
+    if not url:
+        return ""
+
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    if not token:
+        return ""
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/octet-stream",
+    }
+    candidates = [url]
+    if "/download" not in url:
+        candidates.append(url.rstrip("/") + "/download")
+
+    for candidate in candidates:
+        try:
+            r = requests.get(candidate, headers=headers, timeout=20)
+            if r.status_code != 200:
+                continue
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            if "image" not in ctype and "octet-stream" not in ctype:
+                continue
+            suffix = ".jpg"
+            if "png" in ctype:
+                suffix = ".png"
+            tmp_path = Path(tempfile.gettempdir()) / f"tk_ms_{os.getpid()}_{abs(hash(candidate))}{suffix}"
+            tmp_path.write_bytes(r.content)
+            return str(tmp_path)
+        except Exception:
+            continue
     return ""
 
 
