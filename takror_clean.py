@@ -246,7 +246,7 @@ def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]
     return rows[0]
 
 
-def _get_repeat_product_image(prod: Dict[str, Any]) -> str:
+def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> str:
     if not isinstance(prod, dict):
         return ""
     for k in ("image_path", "photo_path", "imageUrl", "image_url"):
@@ -281,11 +281,62 @@ def _get_repeat_product_image(prod: Dict[str, Any]) -> str:
         if not fn:
             continue
         try:
-            v = fn(prod)
+            v = fn(prod, context)
             return (v or "").strip() if isinstance(v, str) else ""
+        except TypeError:
+            try:
+                v = fn(prod)
+                return (v or "").strip() if isinstance(v, str) else ""
+            except TypeError:
+                try:
+                    v = fn(prod.get("id") if isinstance(prod, dict) else prod)
+                    return (v or "").strip() if isinstance(v, str) else ""
+                except Exception:
+                    pass
+            except Exception:
+                pass
         except Exception:
             pass
     return ""
+
+
+async def _send_preview_with_optional_image(target_message, context: ContextTypes.DEFAULT_TYPE):
+    d = context.user_data.get("tk_form") or {}
+    text = _preview_text(context)
+    kb = _preview_kb()
+
+    img = (d.get("image_path") or "").strip()
+    if not img:
+        prod = context.user_data.get("tk_product") or {}
+        img = _get_repeat_product_image(prod, context)
+        if img:
+            d["image_path"] = img
+            context.user_data["tk_form"] = d
+
+    if img:
+        try:
+            if img.startswith("http://") or img.startswith("https://"):
+                await context.bot.send_photo(
+                    chat_id=target_message.chat_id,
+                    photo=img,
+                    caption=text,
+                    reply_markup=kb,
+                )
+                return TK_PICK
+            if os.path.exists(img):
+                with open(img, "rb") as f:
+                    await context.bot.send_photo(
+                        chat_id=target_message.chat_id,
+                        photo=f,
+                        caption=text,
+                        reply_markup=kb,
+                    )
+                    return TK_PICK
+        except Exception:
+            await context.bot.send_message(chat_id=target_message.chat_id, text="⚠️ Rasmni yuborib bo‘lmadi, matnli preview yuborildi.")
+
+    await target_message.reply_text(text, reply_markup=kb)
+    return TK_PICK
 
 
 def _preview_text(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -448,8 +499,10 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["tk_wait"] = "qm"
     context.user_data["tk_phase"] = "product"
 
-    img = _get_repeat_product_image(prod)
+    img = _get_repeat_product_image(prod, context)
     if img:
+        d["image_path"] = img
+        context.user_data["tk_form"] = d
         try:
             if img.startswith("http://") or img.startswith("https://"):
                 await context.bot.send_photo(chat_id=q.message.chat_id, photo=img, caption="🖼 Topilgan tovar rasmi")
@@ -514,8 +567,7 @@ async def takror_extra_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d["price_uzs"] = int(nums[-1])
         context.user_data["tk_form"] = d
         context.user_data.pop("tk_wait", None)
-        await update.message.reply_text(_preview_text(context), reply_markup=_preview_kb())
-        return TK_PICK
+        return await _send_preview_with_optional_image(update.message, context)
 
     await update.message.reply_text("❌ Noto'g'ri bosqich. /takror ni qaytadan bosing.")
     return ConversationHandler.END
