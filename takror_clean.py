@@ -398,6 +398,25 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     return ""
 
 
+def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
+    pid = (pid or "").strip()
+    if not pid:
+        return {}
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    if not token:
+        return {}
+    url = f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}?expand=images"
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            return {}
+        data = r.json() if r.content else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 async def _send_preview_with_optional_image(target_message, context: ContextTypes.DEFAULT_TYPE):
     d = context.user_data.get("tk_form") or {}
     text = _preview_text(context)
@@ -586,7 +605,8 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     pid = (q.data or "").split("tkp:", 1)[-1].strip()
     mapped = (context.user_data.get("tk_products_map") or {}).get(pid)
     prod_full = get_product_by_id(pid)
-    prod = prod_full or mapped
+    prod_api = _fetch_product_full_from_ms(pid)
+    prod = prod_api or prod_full or mapped
     if not prod:
         await q.edit_message_text("❌ Tovar topilmadi. Qaytadan /takror qiling.")
         return ConversationHandler.END
