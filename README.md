@@ -52,3 +52,27 @@ Qo‘shimcha ravishda 1 ta log ham yuboring:
 - `python -m app.main` ishga tushgandagi to‘liq traceback (xatolik boshidan oxirigacha).
 
 Shular bilan muammoni aniq nuqtada tez tuzatib berish mumkin.
+
+## Kelgan `takror.py` va `main.py` bo‘yicha tez diagnostika
+
+Yuborgan fayllarda hozircha 3 ta kritik muammo ko‘rindi:
+
+1. **Fayl kontenti ikki marta takrorlangan**  
+   - `# app/handlers/takror.py` dan keyin butun modul yana qayta boshlangan.  
+   - `main.py` ham to‘liq 2 marta ketma-ket tushib qolgan.
+2. **Mojibake matnlar bor**  
+   - Masalan: `рџ’°`, `вњ…`, `вќЊ` kabi belgilar. Bular emoji/UTF-8 buzilganini bildiradi.
+3. **State nomlarida nomuvofiqlik bor**  
+   - Kodda `return TK_REVIEW` ishlatilgan joylar bor, lekin state konstantalarda `TK_REVIEW` e’lon qilinmagan.
+
+### Hozir qilinadigan minimal fix (tez)
+
+- `takror.py` va `main.py` faylida **2-marta takrorlangan pastki qismni to‘liq o‘chirib tashlang**.
+- Ikkala faylni ham **UTF-8** encoding’da qayta saqlang.
+- `takror.py` boshidagi state’larni quyidagicha yangilang:
+
+```python
+TK_SEARCH, TK_PICK, TK_EXTRA, TK_QTY, TK_REVIEW, TK_EDIT_VALUE = range(6)
+```
+
+Shundan keyin qolgan fayllarni yuborsangiz, to‘liq va xavfsiz final patchni beraman.
