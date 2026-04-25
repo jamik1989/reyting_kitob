@@ -130,6 +130,25 @@ def _product_title(prod: Dict[str, Any]) -> str:
     return (prod.get("name") or "").strip() or "NoName"
 
 
+def _extract_size_from_product(prod: Dict[str, Any]) -> str:
+    name = _product_title(prod)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*[xXхХ*]\s*(\d+(?:[.,]\d+)?)", name or "")
+    if m:
+        return _normalize_size(f"{m.group(1)}x{m.group(2)}")
+
+    attrs = prod.get("attributes") or []
+    if isinstance(attrs, list):
+        for a in attrs:
+            if not isinstance(a, dict):
+                continue
+            n = str(a.get("name") or "").lower()
+            if "razmer" in n or "size" in n:
+                val = a.get("value")
+                if isinstance(val, str) and val.strip():
+                    return _normalize_size(val)
+    return ""
+
+
 def _cleanup(context: ContextTypes.DEFAULT_TYPE):
     for k in (
         "tk_products_map",
@@ -493,8 +512,7 @@ def _edit_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🏷 Brend", callback_data="tkr_edit:brand"),
          InlineKeyboardButton("🧾 Turi", callback_data="tkr_edit:item_type")],
-        [InlineKeyboardButton("📏 Razmer", callback_data="tkr_edit:size"),
-         InlineKeyboardButton("📝 Q.M", callback_data="tkr_edit:qm")],
+        [InlineKeyboardButton("📝 Q.M", callback_data="tkr_edit:qm")],
         [InlineKeyboardButton("🔢 Soni", callback_data="tkr_edit:qty"),
          InlineKeyboardButton("💰 Narx", callback_data="tkr_edit:price")],
         [InlineKeyboardButton("⬅️ Orqaga", callback_data="tkr:back")],
@@ -615,6 +633,9 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     d = context.user_data.get("tk_form") or {}
     d["item_type"] = _product_title(prod)
     d["price_uzs"] = _extract_sale_price_uzs(prod)
+    auto_size = _extract_size_from_product(prod)
+    if auto_size:
+        d["size"] = auto_size
     context.user_data["tk_form"] = d
     context.user_data["tk_wait"] = "qm"
     context.user_data["tk_phase"] = "product"
@@ -631,6 +652,8 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await context.bot.send_photo(chat_id=q.message.chat_id, photo=f, caption="🖼 Topilgan tovar rasmi")
         except Exception:
             await context.bot.send_message(chat_id=q.message.chat_id, text="⚠️ Tovar rasmi topildi, lekin yuborishda xatolik bo‘ldi.")
+    else:
+        await context.bot.send_message(chat_id=q.message.chat_id, text="ℹ️ Bu tovarni rasmi yo‘q.")
 
     await q.edit_message_text("📝 Q.M (izoh) kiriting. Masalan: kb")
     return TK_EXTRA
@@ -803,7 +826,6 @@ async def takror_edit_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
     prompts = {
         "brand": "🏷 Brend:",
         "item_type": "🧾 Maxsulot turi:",
-        "size": "📏 Razmer (masalan: 1.5x5):",
         "qm": "📝 Q.M (masalan: kb):",
         "qty": "🔢 Soni (masalan: 3000 sh yoki 3000 d):",
         "price": "💰 Narx (masalan: 450):",
@@ -821,8 +843,6 @@ async def takror_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d["brand"] = val.upper()
     elif key == "item_type":
         d["item_type"] = val
-    elif key == "size":
-        d["size"] = _normalize_size(val)
     elif key == "qm":
         d["qm_note"] = _normalize_qm(val)
     elif key == "qty":
