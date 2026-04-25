@@ -140,6 +140,16 @@ def _extract_size_from_product(prod: Dict[str, Any]) -> str:
     if m2:
         return _normalize_size(f"{m2.group(1)}x{m2.group(2)}")
 
+    m3 = re.search(r"(\d+(?:[.,]\d+)?)\s*(sm|cm|см)\b", name or "", re.IGNORECASE)
+    if m3:
+        num = (m3.group(1) or "").replace(",", ".").strip()
+        unit = (m3.group(2) or "sm").lower()
+        if unit == "cm":
+            unit = "sm"
+        if unit == "см":
+            unit = "sm"
+        return f"{num}{unit}"
+
     attrs = prod.get("attributes") or []
     if isinstance(attrs, list):
         for a in attrs:
