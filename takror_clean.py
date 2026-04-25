@@ -493,14 +493,17 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
 def _preview_text(context: ContextTypes.DEFAULT_TYPE) -> str:
     d = context.user_data.get("tk_form") or {}
     qty_show = _fmt_num(d.get("qty"))
-    if d.get("qty_unit_lat"):
-        qty_show = f"{qty_show} {d.get('qty_unit_lat')}"
+    qty_unit = (d.get("qty_unit_lat") or "").strip().lower()
+    if qty_unit in ("sht", "sh", "шт", ""):
+        qty_unit = "dona"
+    if qty_unit:
+        qty_show = f"{qty_show} {qty_unit}"
 
     moment_iso = (d.get("moment_iso_override") or "").strip() or _tg_now_as_ms_moment()
     moment_show = _fmt_ms_to_tg(moment_iso)
 
     return "\n".join([
-        "🔎 Tekshiruv (Takror):",
+        "#takror",
         "",
         f"🏷 {(d.get('brand') or '-').upper()}",
         f"🧾 {d.get('item_type') or '-'}",
@@ -510,7 +513,7 @@ def _preview_text(context: ContextTypes.DEFAULT_TYPE) -> str:
         f"💰 {_fmt_num(d.get('price_uzs'))}",
         f"📊 {d.get('channel_name') or 'Zakariyo 02'}",
         f"📁 {d.get('group_name') or 'karobka'}",
-        f"🏬 {CONFIRM_STORE_NAME}",
+        "",
         f"🕒 {moment_show}",
     ])
 
