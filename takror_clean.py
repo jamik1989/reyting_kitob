@@ -313,6 +313,10 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
                 pass
         except Exception:
             pass
+
+    api_image = _fetch_product_image_from_ms(prod)
+    if api_image:
+        return api_image
     return ""
 
 
@@ -347,6 +351,48 @@ def _download_ms_image_to_tmp(url: str) -> str:
             tmp_path = Path(tempfile.gettempdir()) / f"tk_ms_{os.getpid()}_{abs(hash(candidate))}{suffix}"
             tmp_path.write_bytes(r.content)
             return str(tmp_path)
+        except Exception:
+            continue
+    return ""
+
+
+def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
+    if not isinstance(prod, dict):
+        return ""
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    if not token:
+        return ""
+
+    pid = str(prod.get("id") or "").strip()
+    meta = prod.get("meta") if isinstance(prod.get("meta"), dict) else {}
+    meta_href = (meta.get("href") or "").strip() if isinstance(meta, dict) else ""
+
+    candidates = []
+    if pid:
+        candidates.append(f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}/images")
+    if meta_href:
+        candidates.append(meta_href.rstrip("/") + "/images")
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    for url in candidates:
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+            if r.status_code != 200:
+                continue
+            data = r.json() if r.content else {}
+            rows = data.get("rows") if isinstance(data, dict) else None
+            if not isinstance(rows, list) or not rows:
+                continue
+            first = rows[0] or {}
+            first_meta = first.get("meta") if isinstance(first, dict) else None
+            if not isinstance(first_meta, dict):
+                continue
+            href = (first_meta.get("downloadHref") or first_meta.get("href") or "").strip()
+            if not href:
+                continue
+            local = _download_ms_image_to_tmp(href)
+            if local:
+                return local
         except Exception:
             continue
     return ""
@@ -538,7 +584,9 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     await q.answer()
 
     pid = (q.data or "").split("tkp:", 1)[-1].strip()
-    prod = (context.user_data.get("tk_products_map") or {}).get(pid) or get_product_by_id(pid)
+    mapped = (context.user_data.get("tk_products_map") or {}).get(pid)
+    prod_full = get_product_by_id(pid)
+    prod = prod_full or mapped
     if not prod:
         await q.edit_message_text("❌ Tovar topilmadi. Qaytadan /takror qiling.")
         return ConversationHandler.END
