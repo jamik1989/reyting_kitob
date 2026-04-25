@@ -29,6 +29,11 @@ MS_TZ = ZoneInfo(os.getenv("MOYSKLAD_TZ", "Europe/Moscow"))
 
 CONFIRM_STORE_NAME = "Abusahiy 75"
 
+try:
+    from app.handlers import confirm as _confirm_mod
+except Exception:
+    _confirm_mod = None
+
 
 def _menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -122,8 +127,137 @@ def _product_title(prod: Dict[str, Any]) -> str:
 
 
 def _cleanup(context: ContextTypes.DEFAULT_TYPE):
-    for k in ("tk_products_map", "tk_product", "tk_form", "tk_edit_key", "tk_wait"):
+    for k in (
+        "tk_products_map",
+        "tk_product",
+        "tk_form",
+        "tk_edit_key",
+        "tk_wait",
+        "tk_phase",
+        "tk_cp_meta",
+        "tk_cp_name",
+    ):
         context.user_data.pop(k, None)
+
+
+def _find_callable(name: str):
+    fn = globals().get(name)
+    if callable(fn):
+        return fn
+    if _confirm_mod is not None:
+        fn = getattr(_confirm_mod, name, None)
+        if callable(fn):
+            return fn
+    return None
+
+
+def _search_counterparties(query: str):
+    names = [
+        "search_counterparties",
+        "search_counterparty",
+        "find_counterparties",
+        "find_counterparty",
+        "search_counterparties_by_query",
+        "find_counterparties_for_query",
+    ]
+    for name in names:
+        fn = _find_callable(name)
+        if not fn:
+            continue
+        try:
+            rows = fn(query, limit=8)
+        except TypeError:
+            rows = fn(query)
+        except Exception:
+            rows = []
+        if rows:
+            return rows
+    return []
+
+
+def _create_counterparty(name: str, phone: str):
+    names = [
+        "create_counterparty",
+        "create_counterparty_if_not_exists",
+        "create_counterparty_minimal",
+        "create_counterparty_simple",
+    ]
+    for helper_name in names:
+        fn = _find_callable(helper_name)
+        if not fn:
+            continue
+        try:
+            return fn(name=name, phone=phone)
+        except TypeError:
+            try:
+                return fn(name, phone)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    return None
+
+
+def _extract_cp_meta(cp_obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(cp_obj, dict):
+        return None
+    meta = cp_obj.get("meta")
+    if isinstance(meta, dict):
+        return meta
+    if cp_obj.get("id"):
+        return {
+            "href": f"https://api.moysklad.ru/api/remap/1.2/entity/counterparty/{cp_obj['id']}",
+            "type": "counterparty",
+            "mediaType": "application/json",
+        }
+    return None
+
+
+def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]:
+    if not rows:
+        return None
+    q = (query or "").strip().lower()
+    for r in rows:
+        name = str(r.get("name") or "").strip().lower()
+        phone = str(r.get("phone") or "").strip().lower()
+        if q and (q == name or q in name or q in phone):
+            return r
+    return rows[0]
+
+
+def _get_repeat_product_image(prod: Dict[str, Any]) -> str:
+    if not isinstance(prod, dict):
+        return ""
+    for k in ("image_path", "photo_path", "imageUrl", "image_url"):
+        v = (prod.get(k) or "").strip() if isinstance(prod.get(k), str) else ""
+        if v:
+            return v
+
+    image = prod.get("image") or {}
+    if isinstance(image, dict):
+        for k in ("href", "downloadHref", "url"):
+            v = image.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+
+    images = prod.get("images") or {}
+    rows = images.get("rows") if isinstance(images, dict) else None
+    if isinstance(rows, list) and rows:
+        first = rows[0] or {}
+        meta = first.get("meta") if isinstance(first, dict) else None
+        if isinstance(meta, dict):
+            href = (meta.get("downloadHref") or meta.get("href") or "").strip()
+            if href:
+                return href
+
+    fn = _find_callable("_get_repeat_product_image")
+    if fn:
+        try:
+            v = fn(prod)
+            return (v or "").strip() if isinstance(v, str) else ""
+        except Exception:
+            pass
+    return ""
 
 
 def _preview_text(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -189,15 +323,60 @@ async def takror_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "channel_name": "Zakariyo 02",
         "group_name": "karobka",
     }
-
-    await update.message.reply_text("🔁 Takror: tovar nomini yozing.\nMasalan: jakard, birka 4x4")
+    context.user_data["tk_phase"] = "cp"
+    await update.message.reply_text(
+        "🏷 Brend yoki mijoz yoki telefon yozing.\n"
+        "Agar topilmasa: BRAND-Mijoz-901234567 formatida yuboring."
+    )
     return TK_SEARCH
 
 
 async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = (update.message.text or "").strip()
+    phase = context.user_data.get("tk_phase") or "cp"
+    d = context.user_data.get("tk_form") or {}
+
     if not q:
-        await update.message.reply_text("❌ Tovar nomini yozing.")
+        if phase == "cp":
+            await update.message.reply_text("❌ Brend/mijoz/telefon kiriting.")
+        else:
+            await update.message.reply_text("❌ Tovar nomini yozing.")
+        return TK_SEARCH
+
+    if phase == "cp":
+        rows = _search_counterparties(q)
+        if rows:
+            cp = _best_cp(rows, q) or {}
+            cp_name = (cp.get("name") or q).strip()
+            d["brand"] = cp_name.upper()
+            context.user_data["tk_form"] = d
+            context.user_data["tk_cp_meta"] = _extract_cp_meta(cp)
+            context.user_data["tk_cp_name"] = cp_name
+            context.user_data["tk_phase"] = "product"
+            await update.message.reply_text(f"✅ Kontragent topildi: {cp_name}\n\n🔁 Takror: tovar nomini yozing.")
+            return TK_SEARCH
+
+        m = re.match(r"^\s*([^-]+)-([^-]+)-(\+?\d{7,15})\s*$", q)
+        if m:
+            brand = (m.group(1) or "").strip().upper()
+            client_name = (m.group(2) or "").strip()
+            phone = (m.group(3) or "").strip()
+            cp_obj = _create_counterparty(client_name, phone)
+            d["brand"] = brand
+            context.user_data["tk_form"] = d
+            context.user_data["tk_cp_meta"] = _extract_cp_meta(cp_obj or {})
+            context.user_data["tk_cp_name"] = client_name
+            context.user_data["tk_phase"] = "product"
+            await update.message.reply_text(
+                f"✅ Yangi kontragent qabul qilindi: {brand} / {client_name} ({phone})\n\n"
+                "🔁 Takror: tovar nomini yozing."
+            )
+            return TK_SEARCH
+
+        await update.message.reply_text(
+            "❌ Kontragent topilmadi.\n"
+            "Qayta yozing yoki yaratish uchun: BRAND-Mijoz-901234567"
+        )
         return TK_SEARCH
 
     rows = search_products(q, limit=10) or []
@@ -235,6 +414,18 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     d["price_uzs"] = _extract_sale_price_uzs(prod)
     context.user_data["tk_form"] = d
     context.user_data["tk_wait"] = "qm"
+    context.user_data["tk_phase"] = "product"
+
+    img = _get_repeat_product_image(prod)
+    if img:
+        try:
+            if img.startswith("http://") or img.startswith("https://"):
+                await context.bot.send_photo(chat_id=q.message.chat_id, photo=img, caption="🖼 Topilgan tovar rasmi")
+            elif os.path.exists(img):
+                with open(img, "rb") as f:
+                    await context.bot.send_photo(chat_id=q.message.chat_id, photo=f, caption="🖼 Topilgan tovar rasmi")
+        except Exception:
+            pass
 
     await q.edit_message_text("📝 Q.M (izoh) kiriting. Masalan: kb")
     return TK_EXTRA
@@ -323,7 +514,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         qty = int(d.get("qty") or 0)
         price_uzs = int(d.get("price_uzs") or 0)
 
-        cp_meta = {"href": "", "type": "counterparty", "mediaType": "application/json"}
+        cp_meta = context.user_data.get("tk_cp_meta") or {"href": "", "type": "counterparty", "mediaType": "application/json"}
 
         positions = [{
             "assortment": {"meta": product_meta},
