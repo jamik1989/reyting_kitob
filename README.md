@@ -33,3 +33,22 @@ python -m app.main
 
 - Faylga Python kodi (`async def`, `return "\n".join(lines)` va hokazo) nusxa qilinayotganda PowerShell sintaksisiga mos patch formatdan foydalaning.
 - `.ps1` fayllar uchun **UTF-8** ni default qiling (editor sozlamalarida).
+
+## Takror/Tasdiq xatosini tuzatish uchun qaysi fayllar kerak?
+
+Muammoni to‘liq tuzatish uchun quyidagi fayllarni yuborish kifoya:
+
+1. `app/handlers/takror.py`  
+   - Asosiy logika shu yerda (`takror_pick_product`, `takror_extra_text`, `takror_qty_text`, `takror_edit_action`).
+2. `patch_takror_text_image_edit_fix.ps1` (agar ishlatayotgan bo‘lsangiz)  
+   - PowerShell parser xatosi va mojibake muammosini tekshirish uchun.
+3. `app/main.py`  
+   - Handlerlar qanday ro‘yxatdan o‘tkazilganini ko‘rish uchun.
+4. Agar mavjud bo‘lsa: `app/handlers/*` ichida `takror.py` chaqiradigan yordamchi fayllar  
+   - Masalan: formatting, parsing, image topish helper funksiyalari bor modullar.
+
+Qo‘shimcha ravishda 1 ta log ham yuboring:
+
+- `python -m app.main` ishga tushgandagi to‘liq traceback (xatolik boshidan oxirigacha).
+
+Shular bilan muammoni aniq nuqtada tez tuzatib berish mumkin.
