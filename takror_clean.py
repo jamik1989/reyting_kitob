@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 import re
+from difflib import SequenceMatcher
 
 from telegram import (
     Update,
@@ -175,6 +176,25 @@ def _search_counterparties(query: str):
     return []
 
 
+def _rank_counterparties(rows: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    q = (query or "").strip().lower()
+    if not q:
+        return rows
+
+    def score(r: Dict[str, Any]) -> float:
+        name = str(r.get("name") or "").strip().lower()
+        phone = str(r.get("phone") or "").strip().lower()
+        if name.startswith(q):
+            return 100.0
+        if q in name:
+            return 90.0
+        if q in phone:
+            return 80.0
+        return SequenceMatcher(None, q, name).ratio() * 70.0
+
+    return sorted(rows, key=score, reverse=True)
+
+
 def _create_counterparty(name: str, phone: str):
     names = [
         "create_counterparty",
@@ -250,8 +270,15 @@ def _get_repeat_product_image(prod: Dict[str, Any]) -> str:
             if href:
                 return href
 
-    fn = _find_callable("_get_repeat_product_image")
-    if fn:
+    for helper in (
+        "_get_repeat_product_image",
+        "_get_product_image_path",
+        "_download_product_image",
+        "_download_image_to_tmp",
+    ):
+        fn = _find_callable(helper)
+        if not fn:
+            continue
         try:
             v = fn(prod)
             return (v or "").strip() if isinstance(v, str) else ""
@@ -344,7 +371,7 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return TK_SEARCH
 
     if phase == "cp":
-        rows = _search_counterparties(q)
+        rows = _rank_counterparties(_search_counterparties(q), q)
         if rows:
             cp = _best_cp(rows, q) or {}
             cp_name = (cp.get("name") or q).strip()
@@ -353,7 +380,17 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data["tk_cp_meta"] = _extract_cp_meta(cp)
             context.user_data["tk_cp_name"] = cp_name
             context.user_data["tk_phase"] = "product"
-            await update.message.reply_text(f"✅ Kontragent topildi: {cp_name}\n\n🔁 Takror: tovar nomini yozing.")
+            top_lines = []
+            for idx, item in enumerate(rows[:5], 1):
+                nm = str(item.get("name") or "-").strip()
+                ph = str(item.get("phone") or "").strip()
+                top_lines.append(f"{idx}) {nm}" + (f" ({ph})" if ph else ""))
+
+            await update.message.reply_text(
+                f"✅ Kontragent topildi: {cp_name}\n"
+                + ("🔎 O'xshashlar:\n" + "\n".join(top_lines) + "\n\n" if top_lines else "\n")
+                + "🔁 Takror: tovar nomini yozing."
+            )
             return TK_SEARCH
 
         m = re.match(r"^\s*([^-]+)-([^-]+)-(\+?\d{7,15})\s*$", q)
@@ -452,7 +489,7 @@ async def takror_extra_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["tk_form"] = d
         context.user_data.pop("tk_wait", None)
         await update.message.reply_text(_preview_text(context), reply_markup=_preview_kb())
-        return TK_REVIEW
+        return TK_PICK
 
     await update.message.reply_text("❌ Noto'g'ri bosqich. /takror ni qaytadan bosing.")
     return ConversationHandler.END
@@ -491,10 +528,10 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "tkr:back":
         await q.edit_message_text(_preview_text(context), reply_markup=_preview_kb())
-        return TK_REVIEW
+        return TK_PICK
 
     if data != "tkr:ok":
-        return TK_REVIEW
+        return TK_PICK
 
     prod = context.user_data.get("tk_product") or {}
     d = context.user_data.get("tk_form") or {}
@@ -560,7 +597,7 @@ async def takror_edit_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     data = q.data or ""
     if not data.startswith("tkr_edit:"):
-        return TK_REVIEW
+        return TK_PICK
 
     key = data.split(":", 1)[1]
     context.user_data["tk_edit_key"] = key
@@ -609,7 +646,7 @@ async def takror_edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("tk_edit_key", None)
 
     await update.message.reply_text(_preview_text(context), reply_markup=_preview_kb())
-    return TK_REVIEW
+    return TK_PICK
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
