@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import os
 import re
 import logging
+import asyncio
 from difflib import SequenceMatcher
 import tempfile
 from pathlib import Path
@@ -383,7 +384,12 @@ def _download_ms_image_to_tmp(url: str) -> str:
 
     for candidate in candidates:
         try:
-            r = requests.get(candidate, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
+            r = requests.get(
+                candidate,
+                headers=headers,
+                auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None),
+                timeout=(4, 8),
+            )
             if r.status_code != 200:
                 continue
             ctype = (r.headers.get("Content-Type") or "").lower()
@@ -424,7 +430,12 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
                 headers = {"Accept": "application/json"}
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
-                r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
+                r = requests.get(
+                    url,
+                    headers=headers,
+                    auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None),
+                    timeout=(4, 8),
+                )
                 if r.status_code != 200:
                     continue
                 data = r.json() if r.content else {}
@@ -460,7 +471,12 @@ def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
             headers = {"Accept": "application/json"}
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-            r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
+            r = requests.get(
+                url,
+                headers=headers,
+                auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None),
+                timeout=(4, 8),
+            )
             if r.status_code != 200:
                 return {}
             data = r.json() if r.content else {}
@@ -511,7 +527,7 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
     img = (d.get("image_path") or "").strip()
     if not img:
         prod = context.user_data.get("tk_product") or {}
-        img = _get_repeat_product_image(prod, context)
+        img = await asyncio.to_thread(_get_repeat_product_image, prod, context)
         if img:
             d["image_path"] = img
             context.user_data["tk_form"] = d
@@ -759,7 +775,7 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["tk_wait"] = "qm"
     context.user_data["tk_phase"] = "product"
 
-    img = _get_repeat_product_image(prod, context)
+    img = await asyncio.to_thread(_get_repeat_product_image, prod, context)
     if img:
         d["image_path"] = img
         context.user_data["tk_form"] = d
