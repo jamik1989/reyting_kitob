@@ -484,6 +484,19 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
                     )
                     return TK_PICK
         except Exception:
+            # fallback: some clients/channels reject photo but accept document
+            try:
+                if os.path.exists(img):
+                    with open(img, "rb") as f:
+                        await context.bot.send_document(
+                            chat_id=target_message.chat_id,
+                            document=f,
+                            caption=text,
+                            reply_markup=kb,
+                        )
+                        return TK_PICK
+            except Exception:
+                pass
             await context.bot.send_message(chat_id=target_message.chat_id, text="⚠️ Rasmni yuborib bo‘lmadi, matnli preview yuborildi.")
 
     await target_message.reply_text(text, reply_markup=kb)
@@ -692,7 +705,14 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
                 with open(img, "rb") as f:
                     await context.bot.send_photo(chat_id=q.message.chat_id, photo=f, caption="🖼 Topilgan tovar rasmi")
         except Exception:
-            await context.bot.send_message(chat_id=q.message.chat_id, text="⚠️ Tovar rasmi topildi, lekin yuborishda xatolik bo‘ldi.")
+            try:
+                if os.path.exists(img):
+                    with open(img, "rb") as f:
+                        await context.bot.send_document(chat_id=q.message.chat_id, document=f, caption="🖼 Topilgan tovar rasmi")
+                else:
+                    await context.bot.send_document(chat_id=q.message.chat_id, document=img, caption="🖼 Topilgan tovar rasmi")
+            except Exception:
+                await context.bot.send_message(chat_id=q.message.chat_id, text="⚠️ Tovar rasmi topildi, lekin yuborishda xatolik bo‘ldi.")
     else:
         await context.bot.send_message(chat_id=q.message.chat_id, text="ℹ️ Bu tovarni rasmi yo‘q.")
 
