@@ -363,8 +363,6 @@ def _download_ms_image_to_tmp(url: str) -> str:
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
-    if not token and not (ms_login and ms_pass):
-        return ""
 
     headers = {
         "Accept": "application/octet-stream",
@@ -400,8 +398,6 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
-    if not token and not (ms_login and ms_pass):
-        return ""
 
     pid = str(prod.get("id") or "").strip()
     meta = prod.get("meta") if isinstance(prod.get("meta"), dict) else {}
@@ -449,8 +445,6 @@ def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
-    if not token and not (ms_login and ms_pass):
-        return {}
     url = f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}?expand=images"
     try:
         data = _ms_get_json(url)
