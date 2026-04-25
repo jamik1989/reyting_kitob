@@ -294,6 +294,8 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
                 local = _download_ms_image_to_tmp(v)
                 if local:
                     return local
+                # Protected MoySklad URL cannot be sent to Telegram directly without auth.
+                continue
             return v
 
     image = prod.get("image") or {}
@@ -306,6 +308,7 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
                     local = _download_ms_image_to_tmp(vv)
                     if local:
                         return local
+                    continue
                 return vv
 
     images = prod.get("images") or {}
@@ -320,7 +323,10 @@ def _get_repeat_product_image(prod: Dict[str, Any], context: Optional[ContextTyp
                     local = _download_ms_image_to_tmp(href)
                     if local:
                         return local
-                return href
+                    # Protected URL without successful download: try other strategies below.
+                    href = ""
+                if href:
+                    return href
 
     for helper in (
         "_get_repeat_product_image",
