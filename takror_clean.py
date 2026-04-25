@@ -527,7 +527,14 @@ async def _send_preview_with_optional_image(target_message, context: ContextType
     img = (d.get("image_path") or "").strip()
     if not img:
         prod = context.user_data.get("tk_product") or {}
-        img = await asyncio.to_thread(_get_repeat_product_image, prod, context)
+        try:
+            img = await asyncio.wait_for(
+                asyncio.to_thread(_get_repeat_product_image, prod, context),
+                timeout=3.5,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("takror preview image resolve timed out; continuing without image")
+            img = ""
         if img:
             d["image_path"] = img
             context.user_data["tk_form"] = d
@@ -775,7 +782,14 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["tk_wait"] = "qm"
     context.user_data["tk_phase"] = "product"
 
-    img = await asyncio.to_thread(_get_repeat_product_image, prod, context)
+    try:
+        img = await asyncio.wait_for(
+            asyncio.to_thread(_get_repeat_product_image, prod, context),
+            timeout=3.5,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("takror product image resolve timed out; continuing without image")
+        img = ""
     if img:
         d["image_path"] = img
         context.user_data["tk_form"] = d
