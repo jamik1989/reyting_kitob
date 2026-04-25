@@ -360,7 +360,7 @@ def _download_ms_image_to_tmp(url: str) -> str:
     if not url:
         return ""
 
-    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip() or str(getattr(_ms_mod, "MOYSKLAD_TOKEN", "") or "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
 
@@ -395,7 +395,7 @@ def _download_ms_image_to_tmp(url: str) -> str:
 def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     if not isinstance(prod, dict):
         return ""
-    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip() or str(getattr(_ms_mod, "MOYSKLAD_TOKEN", "") or "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
 
@@ -442,7 +442,7 @@ def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
     pid = (pid or "").strip()
     if not pid:
         return {}
-    token = os.getenv("MOYSKLAD_TOKEN", "").strip()
+    token = os.getenv("MOYSKLAD_TOKEN", "").strip() or str(getattr(_ms_mod, "MOYSKLAD_TOKEN", "") or "").strip()
     ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
     ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
     url = f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}?expand=images"
@@ -465,13 +465,18 @@ def _ms_get_json(url: str) -> Dict[str, Any]:
     if not url:
         return {}
     # Try to reuse already-authenticated moysklad service helpers first.
-    for fn_name in ("api_get", "_api_get", "_get", "_request_json", "_request"):
+    for fn_name in ("ms_get", "api_get", "_api_get", "_get", "_request_json", "_request"):
         fn = getattr(_ms_mod, fn_name, None)
         if not callable(fn):
             continue
         try:
             if fn_name == "_request":
                 data = fn("GET", url)
+            elif fn_name == "ms_get":
+                path = url.split("/api/remap/1.2/", 1)[-1]
+                if not path.startswith("/"):
+                    path = "/" + path
+                data = fn(path)
             else:
                 data = fn(url)
             if isinstance(data, dict):
