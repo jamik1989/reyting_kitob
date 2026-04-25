@@ -25,6 +25,7 @@ from ..services.moysklad import (
     create_customerorder,
     find_store_meta_by_name,
 )
+from ..services import moysklad as _ms_mod
 
 TK_SEARCH, TK_PICK, TK_EXTRA, TK_QTY, TK_REVIEW, TK_EDIT_VALUE = range(6)
 
@@ -412,15 +413,17 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     if meta_href:
         candidates.append(meta_href.rstrip("/") + "/images")
 
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     for url in candidates:
         try:
-            r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
-            if r.status_code != 200:
-                continue
-            data = r.json() if r.content else {}
+            data = _ms_get_json(url)
+            if not data:
+                headers = {"Accept": "application/json"}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
+                if r.status_code != 200:
+                    continue
+                data = r.json() if r.content else {}
             rows = data.get("rows") if isinstance(data, dict) else None
             if not isinstance(rows, list) or not rows:
                 continue
@@ -449,17 +452,48 @@ def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
     if not token and not (ms_login and ms_pass):
         return {}
     url = f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}?expand=images"
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     try:
-        r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
-        if r.status_code != 200:
-            return {}
-        data = r.json() if r.content else {}
+        data = _ms_get_json(url)
+        if not data:
+            headers = {"Accept": "application/json"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
+            if r.status_code != 200:
+                return {}
+            data = r.json() if r.content else {}
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _ms_get_json(url: str) -> Dict[str, Any]:
+    if not url:
+        return {}
+    # Try to reuse already-authenticated moysklad service helpers first.
+    for fn_name in ("api_get", "_api_get", "_get", "_request_json", "_request"):
+        fn = getattr(_ms_mod, fn_name, None)
+        if not callable(fn):
+            continue
+        try:
+            if fn_name == "_request":
+                data = fn("GET", url)
+            else:
+                data = fn(url)
+            if isinstance(data, dict):
+                return data
+        except TypeError:
+            try:
+                # some helpers expect path only
+                path = url.split("/api/remap/1.2/", 1)[-1]
+                data = fn(path)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        except Exception:
+            pass
+    return {}
 
 
 async def _send_preview_with_optional_image(target_message, context: ContextTypes.DEFAULT_TYPE):
