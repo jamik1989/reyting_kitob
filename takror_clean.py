@@ -360,20 +360,23 @@ def _download_ms_image_to_tmp(url: str) -> str:
         return ""
 
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
-    if not token:
+    ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
+    ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
+    if not token and not (ms_login and ms_pass):
         return ""
 
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "application/octet-stream",
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     candidates = [url]
     if "/download" not in url:
         candidates.append(url.rstrip("/") + "/download")
 
     for candidate in candidates:
         try:
-            r = requests.get(candidate, headers=headers, timeout=20)
+            r = requests.get(candidate, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
             if r.status_code != 200:
                 continue
             ctype = (r.headers.get("Content-Type") or "").lower()
@@ -394,7 +397,9 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     if not isinstance(prod, dict):
         return ""
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
-    if not token:
+    ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
+    ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
+    if not token and not (ms_login and ms_pass):
         return ""
 
     pid = str(prod.get("id") or "").strip()
@@ -407,10 +412,12 @@ def _fetch_product_image_from_ms(prod: Dict[str, Any]) -> str:
     if meta_href:
         candidates.append(meta_href.rstrip("/") + "/images")
 
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     for url in candidates:
         try:
-            r = requests.get(url, headers=headers, timeout=20)
+            r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
             if r.status_code != 200:
                 continue
             data = r.json() if r.content else {}
@@ -437,12 +444,16 @@ def _fetch_product_full_from_ms(pid: str) -> Dict[str, Any]:
     if not pid:
         return {}
     token = os.getenv("MOYSKLAD_TOKEN", "").strip()
-    if not token:
+    ms_login = os.getenv("MOYSKLAD_LOGIN", "").strip() or os.getenv("MOYSKLAD_USER", "").strip()
+    ms_pass = os.getenv("MOYSKLAD_PASSWORD", "").strip() or os.getenv("MOYSKLAD_PASS", "").strip()
+    if not token and not (ms_login and ms_pass):
         return {}
     url = f"https://api.moysklad.ru/api/remap/1.2/entity/product/{pid}?expand=images"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
-        r = requests.get(url, headers=headers, timeout=20)
+        r = requests.get(url, headers=headers, auth=((ms_login, ms_pass) if not token and ms_login and ms_pass else None), timeout=20)
         if r.status_code != 200:
             return {}
         data = r.json() if r.content else {}
