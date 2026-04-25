@@ -557,7 +557,7 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Tovar nomini yozing.")
         return TK_SEARCH
 
-    if phase == "cp":
+    if phase in ("cp", "edit_brand"):
         rows = _rank_counterparties(_search_counterparties(q), q)
         if rows:
             context.user_data["tk_cp_candidates"] = rows[:20]
@@ -568,10 +568,10 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 label = f"{nm}" + (f" ({ph})" if ph else "")
                 kb_rows.append([InlineKeyboardButton(f"✅ {label[:58]}", callback_data=f"tkr_cp:{i}")])
 
-            await update.message.reply_text(
-                "Natijalar:\n— Agar ✅ OPEN tasdiq chiqsa, o‘shani tanlang.\n— Aks holda kontragentni tanlang.",
-                reply_markup=InlineKeyboardMarkup(kb_rows),
-            )
+            title = "Natijalar:\n— Agar ✅ OPEN tasdiq chiqsa, o‘shani tanlang.\n— Aks holda kontragentni tanlang."
+            if phase == "edit_brand":
+                title = "Brend uchun natijalar:\n— Keraklisini tanlang."
+            await update.message.reply_text(title, reply_markup=InlineKeyboardMarkup(kb_rows))
             return TK_PICK
 
         m = re.match(r"^\s*([^-]+)-([^-]+)-(\+?\d{7,15})\s*$", q)
@@ -585,6 +585,12 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data["tk_cp_meta"] = _extract_cp_meta(cp_obj or {})
             context.user_data["tk_cp_name"] = client_name
             context.user_data["tk_phase"] = "product"
+            if phase == "edit_brand":
+                await update.message.reply_text(
+                    f"✅ Brend yangilandi: {brand} / {client_name} ({phone})\n\n{_preview_text(context)}",
+                    reply_markup=_edit_kb(),
+                )
+                return TK_PICK
             await update.message.reply_text(
                 f"✅ Yangi kontragent qabul qilindi: {brand} / {client_name} ({phone})\n\n"
                 "🔁 Takror: tovar nomini yozing."
@@ -661,7 +667,10 @@ async def takror_pick_product(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def takror_cp_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
     data = q.data or ""
     if not data.startswith("tkr_cp:"):
         return TK_PICK
@@ -680,11 +689,20 @@ async def takror_cp_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cp = rows[idx] or {}
     cp_name = (cp.get("name") or "-").strip()
     d = context.user_data.get("tk_form") or {}
+    mode_before = context.user_data.get("tk_phase")
     d["brand"] = cp_name.upper()
     context.user_data["tk_form"] = d
     context.user_data["tk_cp_meta"] = _extract_cp_meta(cp)
     context.user_data["tk_cp_name"] = cp_name
     context.user_data["tk_phase"] = "product"
+
+    if mode_before == "edit_brand":
+        context.user_data["tk_phase"] = "product"
+        await q.edit_message_text(
+            f"✅ Brend yangilandi: {cp_name}\n\n{_preview_text(context)}",
+            reply_markup=_edit_kb(),
+        )
+        return TK_PICK
 
     await q.edit_message_text(f"✅ Tanlandi: {cp_name}\n\n🔁 Takror: tovar nomini yozing.")
     return TK_SEARCH
@@ -735,7 +753,10 @@ async def takror_qty_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
 
     data = q.data or ""
     if data == "tkr:cancel":
@@ -814,7 +835,10 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def takror_edit_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
 
     data = q.data or ""
     if not data.startswith("tkr_edit:"):
@@ -823,8 +847,12 @@ async def takror_edit_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
     key = data.split(":", 1)[1]
     context.user_data["tk_edit_key"] = key
 
+    if key == "brand":
+        context.user_data["tk_phase"] = "edit_brand"
+        await q.edit_message_text("🏷 Yangi brend/mijoz/telefon kiriting (qidiruv ochiladi):")
+        return TK_SEARCH
+
     prompts = {
-        "brand": "🏷 Brend:",
         "item_type": "🧾 Maxsulot turi:",
         "qm": "📝 Q.M (masalan: kb):",
         "qty": "🔢 Soni (masalan: 3000 sh yoki 3000 d):",
