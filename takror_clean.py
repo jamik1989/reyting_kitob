@@ -309,6 +309,39 @@ def _resolve_organization_meta() -> Dict[str, Any]:
     )
 
 
+def _create_customerorder_fallback(
+    *,
+    agent_meta: Optional[Dict[str, Any]],
+    organization_meta: Optional[Dict[str, Any]],
+    moment_iso: str,
+    description: str,
+    store_meta: Optional[Dict[str, Any]],
+    positions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    ms_post = getattr(_ms_mod, "ms_post", None)
+    if not callable(ms_post):
+        raise RuntimeError("ms_post helper topilmadi.")
+
+    payload: Dict[str, Any] = {
+        "moment": (moment_iso or "").strip() or datetime.now(MS_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        "description": description,
+        "applicable": False,
+        "positions": positions or [],
+        "vatEnabled": False,
+        "vatIncluded": False,
+    }
+    if isinstance(organization_meta, dict) and organization_meta.get("href"):
+        payload["organization"] = {"meta": organization_meta}
+    if isinstance(agent_meta, dict) and agent_meta.get("href"):
+        payload["agent"] = {"meta": agent_meta}
+    if isinstance(store_meta, dict) and store_meta.get("href"):
+        payload["store"] = {"meta": store_meta}
+    data = ms_post("/entity/customerorder", payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("customerorder fallback javobi noto‘g‘ri.")
+    return data
+
+
 def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
@@ -750,9 +783,15 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return TK_SEARCH
 
+        d["brand"] = q.strip().upper()[:64]
+        context.user_data["tk_form"] = d
+        context.user_data["tk_cp_meta"] = None
+        context.user_data["tk_cp_name"] = q.strip()
+        context.user_data["tk_phase"] = "product"
         await update.message.reply_text(
-            "❌ Kontragent topilmadi.\n"
-            "Qayta yozing yoki yaratish uchun: BRAND-Mijoz-901234567"
+            "ℹ️ Kontragent topilmadi (yoki ruxsat yo‘q).\n"
+            f"Brend qabul qilindi: {d['brand']}\n\n"
+            "🔁 Takror: tovar nomini yozing."
         )
         return TK_SEARCH
 
@@ -1027,7 +1066,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         qty = int(d.get("qty") or 0)
         price_uzs = int(d.get("price_uzs") or 0)
 
-        cp_meta = context.user_data.get("tk_cp_meta") or {"href": "", "type": "counterparty", "mediaType": "application/json"}
+        cp_meta = context.user_data.get("tk_cp_meta")
 
         positions = [{
             "assortment": {"meta": product_meta},
@@ -1045,15 +1084,25 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
             f"QM: {d.get('qm_note') or '-'}",
         ])
 
-        order = create_customerorder(
-            organization_meta=org_meta,
-            agent_meta=cp_meta,
-            sales_channel_meta=None,
-            store_meta=store_meta,
-            moment_iso=moment_iso,
-            description=desc,
-            positions=positions,
-        )
+        try:
+            order = create_customerorder(
+                organization_meta=org_meta,
+                agent_meta=cp_meta,
+                sales_channel_meta=None,
+                store_meta=store_meta,
+                moment_iso=moment_iso,
+                description=desc,
+                positions=positions,
+            )
+        except Exception:
+            order = _create_customerorder_fallback(
+                organization_meta=org_meta,
+                agent_meta=cp_meta,
+                store_meta=store_meta,
+                moment_iso=moment_iso,
+                description=desc,
+                positions=positions,
+            )
 
         if CONFIRM_CHAT_ID:
             await context.bot.send_message(chat_id=CONFIRM_CHAT_ID, text=_preview_text(context) + f"\n🧾 {order.get('name', 'N/A')}")
