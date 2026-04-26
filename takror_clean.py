@@ -309,6 +309,35 @@ def _resolve_organization_meta() -> Dict[str, Any]:
     )
 
 
+def _create_customerorder_without_org(
+    *,
+    agent_meta: Dict[str, Any],
+    moment_iso: str,
+    description: str,
+    store_meta: Optional[Dict[str, Any]],
+    positions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    ms_post = getattr(_ms_mod, "ms_post", None)
+    if not callable(ms_post):
+        raise RuntimeError("ms_post topilmadi: organization fallback create_customerorder ishlamadi.")
+
+    payload: Dict[str, Any] = {
+        "agent": {"meta": agent_meta},
+        "moment": (moment_iso or "").strip() or datetime.now(MS_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        "description": description,
+        "applicable": False,
+        "vatEnabled": False,
+        "vatIncluded": False,
+        "positions": positions or [],
+    }
+    if store_meta:
+        payload["store"] = {"meta": store_meta}
+    data = ms_post("/entity/customerorder", payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("customerorder create fallback javobi noto‘g‘ri formatda.")
+    return data
+
+
 def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
@@ -1019,7 +1048,6 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     try:
-        org_meta = _resolve_organization_meta()
         store_meta = find_store_meta_by_name(CONFIRM_STORE_NAME)
         if not store_meta:
             raise RuntimeError(f"Sklad topilmadi: {CONFIRM_STORE_NAME}")
@@ -1045,15 +1073,26 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
             f"QM: {d.get('qm_note') or '-'}",
         ])
 
-        order = create_customerorder(
-            organization_meta=org_meta,
-            agent_meta=cp_meta,
-            sales_channel_meta=None,
-            store_meta=store_meta,
-            moment_iso=moment_iso,
-            description=desc,
-            positions=positions,
-        )
+        try:
+            org_meta = _resolve_organization_meta()
+            order = create_customerorder(
+                organization_meta=org_meta,
+                agent_meta=cp_meta,
+                sales_channel_meta=None,
+                store_meta=store_meta,
+                moment_iso=moment_iso,
+                description=desc,
+                positions=positions,
+            )
+        except Exception as org_err:
+            logger.warning("takror create_customerorder with organization failed: %r", org_err)
+            order = _create_customerorder_without_org(
+                agent_meta=cp_meta,
+                store_meta=store_meta,
+                moment_iso=moment_iso,
+                description=desc,
+                positions=positions,
+            )
 
         if CONFIRM_CHAT_ID:
             await context.bot.send_message(chat_id=CONFIRM_CHAT_ID, text=_preview_text(context) + f"\n🧾 {order.get('name', 'N/A')}")
