@@ -275,6 +275,40 @@ def _extract_cp_meta(cp_obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _organization_meta_fallback_from_env() -> Optional[Dict[str, Any]]:
+    href = (os.getenv("MOYSKLAD_ORGANIZATION_HREF", "") or "").strip()
+    org_id = (os.getenv("MOYSKLAD_ORGANIZATION_ID", "") or os.getenv("MOYSKLAD_ORG_ID", "") or "").strip()
+    if not href and org_id:
+        href = f"https://api.moysklad.ru/api/remap/1.2/entity/organization/{org_id}"
+    if not href:
+        return None
+    return {
+        "href": href,
+        "type": "organization",
+        "mediaType": "application/json",
+    }
+
+
+def _resolve_organization_meta() -> Dict[str, Any]:
+    try:
+        org = get_default_organization()
+        meta = org.get("meta") if isinstance(org, dict) else None
+        if isinstance(meta, dict) and meta.get("href"):
+            return meta
+    except Exception as e:
+        logger.warning("takror get_default_organization failed: %r", e)
+
+    env_meta = _organization_meta_fallback_from_env()
+    if env_meta:
+        logger.info("takror organization meta loaded from env fallback")
+        return env_meta
+
+    raise RuntimeError(
+        "MoySklad organization olishda ruxsat yo‘q. "
+        "MOYSKLAD_ORGANIZATION_ID (yoki MOYSKLAD_ORG_ID) ni sozlang."
+    )
+
+
 def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
@@ -985,7 +1019,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     try:
-        org = get_default_organization()
+        org_meta = _resolve_organization_meta()
         store_meta = find_store_meta_by_name(CONFIRM_STORE_NAME)
         if not store_meta:
             raise RuntimeError(f"Sklad topilmadi: {CONFIRM_STORE_NAME}")
@@ -1012,7 +1046,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         ])
 
         order = create_customerorder(
-            organization_meta=org["meta"],
+            organization_meta=org_meta,
             agent_meta=cp_meta,
             sales_channel_meta=None,
             store_meta=store_meta,
