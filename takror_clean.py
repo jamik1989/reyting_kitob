@@ -309,36 +309,6 @@ def _resolve_organization_meta() -> Dict[str, Any]:
     )
 
 
-def _create_customerorder_without_org(
-    *,
-    agent_meta: Optional[Dict[str, Any]],
-    moment_iso: str,
-    description: str,
-    store_meta: Optional[Dict[str, Any]],
-    positions: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    ms_post = getattr(_ms_mod, "ms_post", None)
-    if not callable(ms_post):
-        raise RuntimeError("ms_post topilmadi: organization fallback create_customerorder ishlamadi.")
-
-    payload: Dict[str, Any] = {
-        "moment": (moment_iso or "").strip() or datetime.now(MS_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-        "description": description,
-        "applicable": False,
-        "vatEnabled": False,
-        "vatIncluded": False,
-        "positions": positions or [],
-    }
-    if isinstance(agent_meta, dict) and agent_meta.get("href"):
-        payload["agent"] = {"meta": agent_meta}
-    if store_meta:
-        payload["store"] = {"meta": store_meta}
-    data = ms_post("/entity/customerorder", payload)
-    if not isinstance(data, dict):
-        raise RuntimeError("customerorder create fallback javobi noto‘g‘ri formatda.")
-    return data
-
-
 def _best_cp(rows: List[Dict[str, Any]], query: str) -> Optional[Dict[str, Any]]:
     if not rows:
         return None
@@ -780,16 +750,9 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return TK_SEARCH
 
-        # Soft fallback for restricted MoySklad tokens (counterparty endpoint may be forbidden).
-        d["brand"] = q.strip().upper()[:64]
-        context.user_data["tk_form"] = d
-        context.user_data["tk_cp_meta"] = None
-        context.user_data["tk_cp_name"] = q.strip()
-        context.user_data["tk_phase"] = "product"
         await update.message.reply_text(
-            "ℹ️ Kontragent topilmadi (yoki API ruxsati yo‘q).\n"
-            f"Brend sifatida qabul qilindi: {d['brand']}\n\n"
-            "🔁 Takror: tovar nomini yozing."
+            "❌ Kontragent topilmadi.\n"
+            "Qayta yozing yoki yaratish uchun: BRAND-Mijoz-901234567"
         )
         return TK_SEARCH
 
@@ -1056,6 +1019,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     try:
+        org_meta = _resolve_organization_meta()
         store_meta = find_store_meta_by_name(CONFIRM_STORE_NAME)
         if not store_meta:
             raise RuntimeError(f"Sklad topilmadi: {CONFIRM_STORE_NAME}")
@@ -1063,7 +1027,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         qty = int(d.get("qty") or 0)
         price_uzs = int(d.get("price_uzs") or 0)
 
-        cp_meta = context.user_data.get("tk_cp_meta")
+        cp_meta = context.user_data.get("tk_cp_meta") or {"href": "", "type": "counterparty", "mediaType": "application/json"}
 
         positions = [{
             "assortment": {"meta": product_meta},
@@ -1081,28 +1045,15 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
             f"QM: {d.get('qm_note') or '-'}",
         ])
 
-        try:
-            org_meta = _resolve_organization_meta()
-            if not (isinstance(cp_meta, dict) and cp_meta.get("href")):
-                raise RuntimeError("counterparty meta yo‘q; fallback create ishlatiladi")
-            order = create_customerorder(
-                organization_meta=org_meta,
-                agent_meta=cp_meta,
-                sales_channel_meta=None,
-                store_meta=store_meta,
-                moment_iso=moment_iso,
-                description=desc,
-                positions=positions,
-            )
-        except Exception as org_err:
-            logger.warning("takror create_customerorder with organization failed: %r", org_err)
-            order = _create_customerorder_without_org(
-                agent_meta=cp_meta,
-                store_meta=store_meta,
-                moment_iso=moment_iso,
-                description=desc,
-                positions=positions,
-            )
+        order = create_customerorder(
+            organization_meta=org_meta,
+            agent_meta=cp_meta,
+            sales_channel_meta=None,
+            store_meta=store_meta,
+            moment_iso=moment_iso,
+            description=desc,
+            positions=positions,
+        )
 
         if CONFIRM_CHAT_ID:
             await context.bot.send_message(chat_id=CONFIRM_CHAT_ID, text=_preview_text(context) + f"\n🧾 {order.get('name', 'N/A')}")
