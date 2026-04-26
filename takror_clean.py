@@ -194,7 +194,7 @@ def _find_callable(name: str):
     return None
 
 
-def _search_counterparties(query: str):
+def _search_counterparties(query: str, context: Optional[ContextTypes.DEFAULT_TYPE] = None):
     names = [
         "search_counterparties",
         "search_counterparty",
@@ -211,7 +211,12 @@ def _search_counterparties(query: str):
             rows = fn(query, limit=8)
         except TypeError:
             rows = fn(query)
-        except Exception:
+        except Exception as e:
+            emsg = str(e).lower()
+            if any(x in emsg for x in ("403", "error_1061", "forbidden", "отсутствует доступ")):
+                if context is not None:
+                    context.user_data["tk_cp_api_forbidden"] = True
+                return []
             rows = []
         if rows:
             return rows
@@ -744,7 +749,10 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return TK_SEARCH
 
     if phase in ("cp", "edit_brand"):
-        rows = _rank_counterparties(_search_counterparties(q), q)
+        if context.user_data.get("tk_cp_api_forbidden"):
+            rows = []
+        else:
+            rows = _rank_counterparties(_search_counterparties(q, context), q)
         if rows:
             context.user_data["tk_cp_candidates"] = rows[:20]
             kb_rows = []
