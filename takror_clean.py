@@ -311,7 +311,7 @@ def _resolve_organization_meta() -> Dict[str, Any]:
 
 def _create_customerorder_without_org(
     *,
-    agent_meta: Dict[str, Any],
+    agent_meta: Optional[Dict[str, Any]],
     moment_iso: str,
     description: str,
     store_meta: Optional[Dict[str, Any]],
@@ -322,7 +322,6 @@ def _create_customerorder_without_org(
         raise RuntimeError("ms_post topilmadi: organization fallback create_customerorder ishlamadi.")
 
     payload: Dict[str, Any] = {
-        "agent": {"meta": agent_meta},
         "moment": (moment_iso or "").strip() or datetime.now(MS_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         "description": description,
         "applicable": False,
@@ -330,6 +329,8 @@ def _create_customerorder_without_org(
         "vatIncluded": False,
         "positions": positions or [],
     }
+    if isinstance(agent_meta, dict) and agent_meta.get("href"):
+        payload["agent"] = {"meta": agent_meta}
     if store_meta:
         payload["store"] = {"meta": store_meta}
     data = ms_post("/entity/customerorder", payload)
@@ -779,9 +780,16 @@ async def takror_search_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return TK_SEARCH
 
+        # Soft fallback for restricted MoySklad tokens (counterparty endpoint may be forbidden).
+        d["brand"] = q.strip().upper()[:64]
+        context.user_data["tk_form"] = d
+        context.user_data["tk_cp_meta"] = None
+        context.user_data["tk_cp_name"] = q.strip()
+        context.user_data["tk_phase"] = "product"
         await update.message.reply_text(
-            "❌ Kontragent topilmadi.\n"
-            "Qayta yozing yoki yaratish uchun: BRAND-Mijoz-901234567"
+            "ℹ️ Kontragent topilmadi (yoki API ruxsati yo‘q).\n"
+            f"Brend sifatida qabul qilindi: {d['brand']}\n\n"
+            "🔁 Takror: tovar nomini yozing."
         )
         return TK_SEARCH
 
@@ -1055,7 +1063,7 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
         qty = int(d.get("qty") or 0)
         price_uzs = int(d.get("price_uzs") or 0)
 
-        cp_meta = context.user_data.get("tk_cp_meta") or {"href": "", "type": "counterparty", "mediaType": "application/json"}
+        cp_meta = context.user_data.get("tk_cp_meta")
 
         positions = [{
             "assortment": {"meta": product_meta},
@@ -1075,6 +1083,8 @@ async def takror_review_action(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             org_meta = _resolve_organization_meta()
+            if not (isinstance(cp_meta, dict) and cp_meta.get("href")):
+                raise RuntimeError("counterparty meta yo‘q; fallback create ishlatiladi")
             order = create_customerorder(
                 organization_meta=org_meta,
                 agent_meta=cp_meta,
